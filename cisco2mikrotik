@@ -1,6 +1,23 @@
 #!/usr/bin/python
 # -*- mode: python; coding: utf-8 -*-
 
+# -- Dependencies (max versions)
+#    This script has been confirmed to work with the versions below. 
+#    Later versions require Python3 which this script is not compatible with.
+#	python 2.7+
+#	ciscoconfparse (1.1.24)
+#	ipaddr (2.1.11)
+#	loguru (0.3.2)
+#	setuptools (44.1.1)
+#	pip (9.0.1)
+
+# -- 8/13/21; Bob Atkins updates
+#	Added missing protocols to the services-dict array
+#	Process extended ACLs with the range statement
+#	Process line vty interfaces to look for std acls
+#	Process extended ACLs with multiple ports for dst ports
+#   Process ACLs with established clause
+
 from pprint import pprint
 import sys
 import argparse
@@ -8,12 +25,12 @@ import re
 from ciscoconfparse import CiscoConfParse, CiscoPassword
 from ipaddr import IPv4Network,IPv4Address, AddressValueError
 
-parser = argparse.ArgumentParser(description='Конвертирует конфигурацию Cisco IOS в конфигурацию Mikrotik', add_help=False)
-parser.add_argument('-c', '--config', help='Конвертировать указанный конфиг вместо стандартного ввода', default="-")
-parser.add_argument('-o', '--output', help='Выводить в указанный файл вместо стандартного вывода', default="-")
-parser.add_argument('-m', '--map', action='append', nargs=2, help='Ручной маппинг интерфейсов')
-parser.add_argument('-a', '--ipv4map', action='append', nargs=2, help='Ручной маппинг IPv4 адресов')
-parser.add_argument('-h', '--help', action='help', help='Показать это сообщение и выйти')
+parser = argparse.ArgumentParser(description='Converts Cisco IOS configuration to Mikrotik configuration', add_help=False)
+parser.add_argument('-c', '--config', help='Convert specified config instead of stdin', default="-")
+parser.add_argument('-o', '--output', help='Output to specified file instead of standard output', default="-")
+parser.add_argument('-m', '--map', action='append', nargs=2, help='Manual interface mapping')
+parser.add_argument('-a', '--ipv4map', action='append', nargs=2, help='Manual mapping of IPv4 addresses')
+parser.add_argument('-h', '--help', action='help', help='Show this message and exit')
 args = parser.parse_args()
 
 ipv4map = {}                    # {"10.100.2.70": "10.100.1.11", ...}
@@ -187,6 +204,21 @@ for interface in acl_interfaces:
         else:
             print >>sys.stderr, 'Unknown access-group direction: "%s" (type %s)' % (direction,type(direction))
 
+acl_interfaces = parse.find_objects_w_child(parentspec=r"^line vty ", childspec=r" access-class ")
+for interface in acl_interfaces:
+    for child in interface.children:
+        if " access-class " not in child.text: continue
+        acl,direction = child.text.strip().split()[1:3]
+        if acl in ("input", "output", "forward"):
+            print >>sys.stderr, "Ignoring standard-named chain %s for safety reasons" % acl
+            continue
+        if direction == "in":
+            in_acls[interface.text.strip().split()[1]] = acl
+        elif direction == "out":
+            out_acls[interface.text.strip().split()[1]] = acl
+        else:
+            print >>sys.stderr, 'Unknown access-group direction: "%s" (type %s)' % (direction,type(direction))
+
 ############## ACL-s  ################################################################################################
 # now when we know used ACL-s, we can convert only needs parts of config
 # we convert one ACL to one iptable's chain
@@ -248,13 +280,18 @@ services_dict = {
     "https": 443,
     "echo": 7,
     "ftp-data": 20,
+	"netbios-ns": 137,
     "netbios-ss": 139,
     "snmp": 161,
     "snmptrap": 162,
     "telnet": 23,
     "ntp": 123,
     "pop": 110,
+	"pop3": 110,
     "imap": 143,
+	"tftp": 69,
+	"isakmp": 500,
+	"bgp": 179,
 }
 protocols_dict = {
     "esp": "ipsec-esp",
@@ -348,9 +385,10 @@ for acl_line in all_acls:
     acls_dict[acl_num].append(result)
 
 # standard ACL-s:
-all_acls = parse.find_objects_w_child(parentspec=r"^ip access-list standard [^ ]+", childspec=r"(permit|deny)")
+all_acls = parse.find_objects_w_child(parentspec=r"^access-list [0-9]+", childspec=r"(permit|deny)")
 for acl_line in all_acls:
     acl_name = acl_line.text.strip().split()[-1]
+    print "Std ACL name = %s" % acl_name
     if acl_name not in in_acls.values() and acl_name not in out_acls.values():
         continue                # skip not used ACL-s
     acls_dict[acl_name] = []
@@ -379,11 +417,11 @@ for acl_line in all_acls:
                 result += " src-address=%s" % str(IPv4Network("%s/%s" % (full_acl[0],full_acl[1])))
             else:
                 print >>sys.stderr, "Unknown ACL: %s, stopping" % full_acl
-                sys.exit(2)
+                #sys.exit(2)
         acls_dict[acl_name].append(result)
 
 # extended ACL-s:
-ext_acl_re = r"(?P<action>(deny|permit)) +(?P<protocol>(ip|tcp|udp|icmp|gre|esp|ipinip|ahp|igmp|ospf|pim)) (?P<src>(any|((host|[0-9.]+) [0-9.]+)))(?P<srcport> (eq|lt|gt) [^ ]+)? (?P<dst>(any|((host|[0-9.]+) [0-9.]+)))(?P<dstport> (eq|lt|gt) [^ ]+)?(?P<log> log(-input)?)?$"
+ext_acl_re = r"(?P<action>(deny|permit)) +(?P<protocol>(ip|tcp|udp|icmp|gre|esp|ipinip|ahp|igmp|ospf|pim)) (?P<src>(any|((host|[0-9.]+) [0-9.]+)))(?P<srcport> (eq|lt|gt) [^ ]+)? (?P<dst>(any|((host|[0-9.]+) [0-9.]+)))(?P<dstport> (eq|lt|gt) [^ ]+)?(?P<dstports> (eq|lt|gt) [^.]+)?(?P<range> (range [^ ]+ [^ ]+))?(?P<est> established?)?(?P<log> log(-input)?)?$"
 all_acls = parse.find_objects_w_child(parentspec=r"^ip access-list extended [^ ]+", childspec=r"(permit|deny)")
 for acl_line in all_acls:
     acl_name = acl_line.text.strip().split()[-1]
@@ -409,6 +447,9 @@ for acl_line in all_acls:
 
         if m.group('log'):   # logging enabled
             result += " log=yes"
+
+        if m.group('est'):   # established
+            result += " connection-state=established,related"
 
         try: acl_proto = protocols_dict[m.group('protocol')]
         except KeyError: acl_proto = m.group('protocol')
@@ -465,6 +506,49 @@ for acl_line in all_acls:
             else:
                 print >>sys.stderr, "Unknown port compare rule: %s" % rule
 
+        acl_dst_ports = m.group('dstports')
+        if acl_dst_ports:
+            acl_dst_ports = acl_dst_ports.strip()
+            y=1
+            dst_ports=""
+            rule,ports = acl_dst_ports.split(" ",1)
+            rule = rule.strip()
+
+            if rule == "eq":
+                dst_ports = ports.split()
+                result += " dst-port=" 
+                for x in dst_ports:
+                    try:
+                        dst_port = int(x)
+                    except ValueError:
+                        dst_port = int(services_dict[x])	
+                    if (y == 0):
+				        result += ","
+                    else:
+                        y=0					
+                    result += "%s" % dst_port
+            else:
+                print >>sys.stderr, "Unknown dstports port compare rule: %s" % rule
+                print >>sys.stderr, "acl_dst_ports = %s" % acl_dst_ports
+
+				
+        acl_range_port = m.group('range')
+        if acl_range_port:
+			rule,sp,ep = acl_range_port.split()
+			try:
+				sport = int(sp)
+			except ValueError:
+				sport = int(services_dict[sp])
+				
+			try:
+				eport = int(ep)
+			except ValueError:
+				eport = int(services_dict[ep])				
+			if rule == "range":
+				result += " dst-port={}-{}".format(sport, eport)
+			else:
+				print >>sys.stderr, "Unknown port range rule: %s" % rule
+			
         acls_dict[acl_name].append(result)
 
 # Add final deny-s:
