@@ -11,8 +11,8 @@ GPLv3+
 run ./cisco2mikrotik --help for info
 
 # Requires
-* <https://github.com/mpenning/ciscoconfparse/releases/tag/1.1.24>
-* <https://github.com/google/ipaddr-py/releases/tag/2.1.11>
+* <https://pypi.org/project/ciscoconfparse/1.1.24>
+* <https://pypi.org/project/ipaddr/2.1.11/>
 * <https://github.com/Delgan/loguru/releases/tag/0.3.2>
 
 # Supported features
