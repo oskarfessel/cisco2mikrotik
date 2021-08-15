@@ -11,8 +11,9 @@ GPLv3+
 run ./cisco2mikrotik --help for info
 
 # Requires
-* <https://github.com/mpenning/ciscoconfparse>
-* <https://github.com/google/ipaddr-py>
+* <https://github.com/mpenning/ciscoconfparse/releases/tag/1.1.24>
+* <https://github.com/google/ipaddr-py/releases/tag/2.1.11>
+* <https://github.com/Delgan/loguru/releases/tag/0.3.2>
 
 # Supported features
 * Loopback\*, \*Ethernet, Dot1q-subinterfaces (not shutdowned and not in vrf-s)
@@ -22,4 +23,6 @@ run ./cisco2mikrotik --help for info
 * manual IPv4 addreses mapping
 * IPv4 static routes
 * input/output ACL-s (standard/extented) on interfaces
+* extended ACLs with the port range, multiple ports for dst ports and established clause
+* line vty interfaces to look for std acls
 * local users (with passwords where possible)
