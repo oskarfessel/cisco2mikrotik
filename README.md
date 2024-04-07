@@ -2,7 +2,7 @@
 Cisco to Mikrotik configuration converter
 
 # Language
-python2
+python3.9+
 
 # License
 GPLv3+
@@ -19,9 +19,9 @@ run ./cisco2mikrotik --help for info
 * Loopback\*, \*Ethernet, Dot1q-subinterfaces (not shutdowned and not in vrf-s)
 * interface descriptions
 * manual interface names mapping
-* IPv4 addresses
-* manual IPv4 addreses mapping
-* IPv4 static routes
+* IPv4 and IPv6 addresses
+* manual IPv4 and IPv6 addreses mapping
+* IPv4 and IPv6 static routes
 * input/output ACL-s (standard/extented) on interfaces
 * extended ACLs with the port range, multiple ports for dst ports and established clause
 * line vty interfaces to look for std acls
